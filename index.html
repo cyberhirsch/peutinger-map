@@ -67,7 +67,7 @@
     <div id="count"></div>
     <ul id="list"></ul>
     <div id="info"><em>Select a city to locate it.</em></div>
-    <div class="note">Scan: Konrad Miller's 1887 facsimile. Places &amp; roads: <a href="https://omnesviae.org" target="_blank">OmnesViae</a> (after Talbert).<br><span id="legend"></span></div>
+    <div class="note">Scan: Konrad Miller's 1887 facsimile. Places &amp; roads: <a href="https://omnesviae.org" target="_blank">OmnesViae</a> (after Talbert). Identifiers: <a href="https://vici.org" target="_blank">Vici.org</a>, <a href="https://pleiades.stoa.org" target="_blank">Pleiades</a> (CC BY).<br><span id="legend"></span></div>
   </aside>
   <div id="map" class="peut"></div>
 </div>
@@ -78,7 +78,7 @@ const W = 26381, H = 2014, STRIP = 2048;
 const COL = ['#1d4fa8', '#2e8b57', '#d08a1c', '#9b59b6', '#16a0a0'];
 const CONF = ['placed by hand', 'found on the scan (label or symbol)', 'estimated along the road between neighbours', 'somewhere in its grid square (label not found)', 'unnamed station, placed from the road layout'];
 const BANDS = [[85, 'High', '#2e8b57'], [65, 'Medium', '#d4a017'], [40, 'Low', '#e06b1c'], [0, 'Very low', '#c0392b']];
-const LQ = ['unknown (no modern coordinates)', 'approximate', 'identified'];
+const LQ = ['unknown (no modern coordinates)', 'approximate', 'identified', 'precise (OmnesViae and Pleiades agree within 5 km)'];
 const band = q => BANDS.find(([t]) => q >= t);
 const colourOf = p => $('fColour').value === 'conf'
   ? (p.q != null ? band(p.q)[2] : '#999')
@@ -166,9 +166,21 @@ function select(i) {
     <div><small><span class="dot" style="background:${p.c != null ? COL[p.c] : '#999'}"></span>${p.c != null ? CONF[p.c] : 'not on the surviving Table'}</small>${p.g ? ` <small>· Talbert grid ${p.g.join(', ')}</small>` : ''}</div>
     ${p.q != null ? `<div class="conf"><strong>Position on the scan:</strong> ${band(p.q)[1]} <small>(${p.q}/100)</small><span class="bar"><i style="width:${p.q}%;background:${band(p.q)[2]}"></i></span>
       <ul class="reasons">${(p.qr || []).map(r => `<li>${r}</li>`).join('')}</ul></div>` : ''}
-    <div style="margin-top:4px"><small><strong>Real-world location:</strong> ${LQ[p.lq ?? 0]}</small></div>
+    <div style="margin-top:4px"><small><strong>Real-world location:</strong> ${LQ[p.lq ?? 0]}${p.dk ? ` · OmnesViae and Pleiades differ by ${p.dk} km` : ''}${p.lls ? ` · map position from ${p.lls}` : ''}</small></div>
+    ${links(p)}
     ${p.note ? `<p>${p.note}</p>` : ''}
     ${near.length ? `<div style="margin-top:6px"><small>Road to: ${near.join(', ')}</small></div>` : ''}`;
+}
+
+function links(p) {
+  const x = p.ids || {}; const out = [];
+  if (x.v) out.push(`<a href="https://vici.org/vici/${x.v}/" target="_blank" rel="noopener">Vici</a>`);
+  if (x.p) out.push(`<a href="https://pleiades.stoa.org/places/${x.p}" target="_blank" rel="noopener">Pleiades${p.pt ? ': ' + p.pt : ''}</a>`);
+  if (x.w) out.push(`<a href="https://www.wikidata.org/wiki/${x.w}" target="_blank" rel="noopener">Wikidata</a>`);
+  if (x.l) out.push(`<a href="https://www.livius.org/place/${x.l}/" target="_blank" rel="noopener">Livius</a>`);
+  if (x.d) out.push(`<a href="https://dare.ht.lu.se/places/${x.d}" target="_blank" rel="noopener">DARE</a>`);
+  if (!out.length) return '';
+  return `<div style="margin-top:4px"><small><strong>Linked data:</strong> ${out.join(' · ')}${p.vt ? ` · <em>${p.vt}</em>` : ''}</small></div>`;
 }
 
 function renderList(q = '') {
