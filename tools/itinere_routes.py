@@ -173,12 +173,6 @@ for r, (a, b, d) in enumerate(roads):
     if d: x['rk'] = round(d * (LEAGUE if unit == 'league' else MILE), 1)
     if N + a in on_net and N + b in on_net: by_src[a].append(r)
 
-# keep confidence bits set in a previous routes.json, as long as the road's geometry is unchanged
-try:
-    old_c = {r: x['c'] for r, x in enumerate(json.load(open(OUT, encoding='utf-8'))['routes']) if x and x.get('c')}
-except (OSError, ValueError, KeyError):
-    old_c = {}
-
 for a, rs in by_src.items():
     lim = max(max(routes[r]['sk'] for r in rs) * 4 + 50, 100)
     dist, pred = dijkstra(G, indices=N + a, return_predecessors=True, limit=lim)
@@ -191,14 +185,22 @@ for a, rs in by_src.items():
         mix = [0.0] * 4
         for u, v in zip(path[:-1], path[1:]): mix[EC[(u, v)]] += G[u, v]
         tot = sum(mix) or 1
-        pts = [tuple(places[n - N]['ll']) if n >= N else (float(NLAT[n]), float(NLON[n])) for n in path]
-        pts = simplify(pts, 0.1)
+        ll = [tuple(places[n - N]['ll']) if n >= N else (float(NLAT[n]), float(NLON[n])) for n in path]
+        # 2-bit confidence per vertex, for the segment that starts there (the last vertex repeats the one before):
+        # 3 certain, 2 conjectured, 1 hypothetical, 0 off-road. Each run is simplified on its own so the switches survive.
+        lvl = [3 - EC[(u, v)] for u, v in zip(path[:-1], path[1:])]
+        pts, cs, i = [], [], 0
+        while i < len(lvl):
+            j = i
+            while j < len(lvl) and lvl[j] == lvl[i]: j += 1
+            run = simplify(ll[i:j + 1], 0.1)
+            if pts: cs[-1] = lvl[i]; run = run[1:]  # the shared vertex starts this run's segment
+            pts += run; cs += [lvl[i]] * len(run)
+            i = j
+        cs[-1] = cs[-2]
         x = routes[r]
         x.update(km=round(float(dist[N + b]), 1), cert=[round(m / tot, 2) for m in mix],
-                 g=encode([(round(p, 5), round(q, 5)) for p, q in pts]))
-        # 1-bit confidence per vertex of g, as a string of 0/1; omitted when every vertex is 0 (the default)
-        c = old_c.get(r)
-        if c and len(c) == len(pts) and '1' in c: x['c'] = c
+                 g=encode([(round(p, 5), round(q, 5)) for p, q in pts]), c=''.join(map(str, cs)))
         if roads[r][1] == a: x['rev'] = 1  # geometry runs b -> a
         if x['km'] > 2 * x['sk'] + 10: x['dt'] = 1  # long detour: probably a gap in Itiner-e or a sea crossing
 

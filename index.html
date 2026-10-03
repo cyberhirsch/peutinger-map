@@ -68,7 +68,8 @@
         <label><input type="checkbox" id="fAll"> all places</label>
         <label><input type="checkbox" id="fDots" checked> show markers</label>
         <label>colour by <select id="fColour"><option value="method">how placed</option><option value="conf">confidence</option></select></label>
-        <label>roads <select id="fRoads"><option value="acc">Table vs. real length</option><option value="plain">plain</option></select></label>
+        <label><input type="checkbox" id="fAcc" checked> colour roads by discrepancy</label>
+        <label><input type="checkbox" id="fStreets" checked> modern streets</label>
       </div>
     </header>
     <div id="count"></div>
@@ -97,16 +98,26 @@ function renderLegend() {
     : [...['placed by hand', 'found on scan', 'estimated along road', 'within its grid square', 'unnamed station'].map((n, i) => [COL[i], n, i])
         .filter(([, , i]) => PLACES.some(p => p.c === i)), ['#999', 'not on the Table']];
   $('legend').innerHTML = items.map(([c, n]) => `<span class="dot" style="background:${c}"></span>${n}`).join(' ')
-    + ($('fRoads').value === 'acc' ? '<br>Roads, real ÷ Table length: ' + [...ACC.map(([, c, n]) => [c, n]), ['#888', 'no distance']]
-      .map(([c, n]) => `<span class="dot" style="background:${c}"></span>${n}`).join(' ') + ' · dashed: no Itiner-e road' : '');
+    + ($('fAcc').checked ? '<br>Roads, real vs. Table length: ' + [...ACC.map(([, , c, n]) => [c, n]), ['#888', 'no distance']]
+      .map(([c, n]) => `<span class="dot" style="background:${c}"></span>${n}`).join(' ') + '' : '')
+    + (mode === 'osm' ? '<br>Road course (Itiner-e): bold certain · solid conjectured · dashed hypothetical · dotted off-road · long dashes: no Itiner-e road (straight line)' : '');
 }
 const pxy = ([x, y]) => [-y, x]; // CRS.Simple: [lat=-y, lng=x]
 const osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 18, attribution: '© OpenStreetMap contributors' });
+// terrain without modern roads or towns
+const terrain = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Terrain_Base/MapServer/tile/{z}/{y}/{x}',
+  { maxZoom: 18, maxNativeZoom: 9, attribution: 'Tiles © Esri — Source: USGS, Esri, TANA, DeLorme, and NPS' });
 // Table vs. real length: real road km / (Table number × unit)
-const ACC = [[0.15, '#2e8b57', 'within 15%'], [0.35, '#d4a017', '15–35% off'], [Infinity, '#c0392b', 'over 35% off']];
+// discrepancy, as real ÷ Table: [lower, upper, colour, label]
+const ACC = [[0, 1 / 1.35, '#2b5fa8', 'real >35% shorter'], [1 / 1.35, 1 / 1.15, '#7fb0dd', '15–35% shorter'],
+  [1 / 1.15, 1.15, '#2e8b57', 'within 15%'], [1.15, 1.35, '#e69a1c', '15–35% longer'], [1.35, Infinity, '#c0392b', 'real >35% longer']];
+// Itiner-e certainty per segment: 0 off-road, 1 hypothetical, 2 conjectured, 3 certain
+const CSTYLE = [w => ({ weight: Math.max(w - .5, 1.5), dashArray: '1 5' }), w => ({ weight: w, dashArray: '7 5' }),
+  w => ({ weight: w }), w => ({ weight: w + 1.5 })];
 const UNIT = { m: ['Roman miles', 'mp'], l: ['Gallic leagues', 'leugae'] };
 const ratio = r => r && r.rk && (r.km ?? r.sk) / r.rk;
-const accOf = q => q ? ACC.find(([t]) => Math.abs(Math.log(q)) <= Math.log(1 + t)) : null;
+const accOf = q => q ? ACC.find(([lo, hi]) => q >= lo && q < hi) : null;
+const accCol = q => (accOf(q) || [, , '#888'])[2];
 const roman = n => { let s = ''; for (const [v, c] of [[1000,'M'],[900,'CM'],[500,'D'],[400,'CD'],[100,'C'],[90,'XC'],[50,'L'],[40,'XL'],[10,'X'],[9,'IX'],[5,'V'],[4,'IV'],[1,'I']]) while (n >= v) { s += c; n -= v; } return s; };
 function decode(str) { // Google encoded polyline, precision 5
   const out = []; let i = 0, la = 0, lo = 0;
@@ -122,7 +133,7 @@ function decode(str) { // Google encoded polyline, precision 5
   return out;
 }
 let ROUTES = [];
-let PLACES = [], ROADS = [], mode = 'peut', layers, selLayer, selected = null;
+let PLACES = [], ROADS = [], mode = 'peut', layers, selLayer, selected = null, selRoad = null;
 const $ = id => document.getElementById(id);
 
 const pos = p => mode === 'peut' ? (p.xy && pxy(p.xy)) : p.ll;
@@ -133,19 +144,21 @@ function draw() {
   if (P) for (let i = 0, x = 0; x < W; i++, x += STRIP)
     L.imageOverlay(`strip_${String(i).padStart(2, '0')}.jpg`, [pxy([x, H]), pxy([Math.min(x + STRIP, W), 0])]).addTo(layers);
   else {
-    const acc = $('fRoads').value === 'acc', rr = L.canvas({ padding: .3, tolerance: 4 });
+    const acc = $('fAcc').checked, rr = L.canvas({ padding: .3, tolerance: 5 });
     ROADS.forEach(([a, b, d], k) => {
       if (!PLACES[a].ll || !PLACES[b].ll) return;
-      const r = ROUTES[k], g = r && r.line, sel = selected === a || selected === b;
-      const col = acc ? (accOf(ratio(r)) || [, '#888'])[1] : '#a8261b';
-      L.polyline(g || [PLACES[a].ll, PLACES[b].ll], { renderer: rr, color: col, weight: sel ? 5 : 2, opacity: sel ? .95 : .7,
-        dashArray: g ? null : '4 5' })
-        .bindTooltip(() => legHtml(k, a), { sticky: true }).on('click', () => select(selected === a ? b : a)).addTo(layers);
-      // 1-bit vertex confidence: overdraw runs whose vertices are all 1
-      if (g && r.c) for (let i = 0; i < g.length - 1; i++) {
-        if (r.c[i] !== '1' || r.c[i + 1] !== '1') continue;
-        let j = i + 1; while (j < g.length - 1 && r.c[j + 1] === '1') j++;
-        L.polyline(g.slice(i, j + 1), { renderer: rr, color: col, weight: (sel ? 5 : 2) + 2, opacity: 1, interactive: false }).addTo(layers);
+      const r = ROUTES[k], g = r && r.line, sel = selRoad === k || selected === a || selected === b;
+      const col = acc ? accCol(ratio(r)) : '#a8261b';
+      const w = selRoad === k ? 7 : sel ? 5 : 2, o = sel ? .95 : .7;
+      if (selRoad === k) L.polyline(g || [PLACES[a].ll, PLACES[b].ll], { renderer: rr, color: '#3b2412', weight: w + 5, opacity: .45, interactive: false }).addTo(layers);
+      const part = (pts, st) => L.polyline(pts, { renderer: rr, color: col, ...st })
+        .bindTooltip(() => legHtml(k, a), { sticky: true }).on('click', e => { L.DomEvent.stop(e); selectRoad(k); }).addTo(layers);
+      if (!g) { part([PLACES[a].ll, PLACES[b].ll], { weight: w * .75, opacity: o, dashArray: '14 7' }); return; }
+      // 2-bit confidence per vertex (Itiner-e certainty of the segment starting there): one polyline per run
+      for (let i = 0; i < g.length - 1;) {
+        const c = r.c ? +r.c[i] : 2; let j = i + 1;
+        while (j < g.length - 1 && r.c && +r.c[j] === c) j++;
+        part(g.slice(i, j + 1), { ...CSTYLE[c](w), opacity: c ? o : o * .7 });
         i = j;
       }
     });
@@ -171,7 +184,7 @@ function setMode(m) {
   mode = m;
   $('bPeut').classList.toggle('on', m === 'peut');
   $('bOsm').classList.toggle('on', m === 'osm');
-  rebuildMap();
+  rebuildMap(); renderLegend();
   if (selected != null) fly(PLACES[selected], false);
 }
 
@@ -184,7 +197,7 @@ function rebuildMap() {
       maxBounds: [pxy([-500, H + 300]), pxy([W + 500, -300])] } : { zoomSnap: .25, preferCanvas: true });
   window.lmap = lm;
   layers = L.layerGroup().addTo(lm); selLayer = L.layerGroup().addTo(lm);
-  if (!P) osm.addTo(lm);
+  if (!P) ($('fStreets').checked ? osm : terrain).addTo(lm);
   draw(); drawSel();
   if (P) lm.fitBounds([pxy([0, H]), pxy([4000, 0])]);
   else lm.fitBounds([[28, -6], [52, 45]]);
@@ -196,7 +209,7 @@ function fly(p, animate = true) {
 }
 
 function select(i) {
-  selected = i;
+  selected = i; selRoad = null;
   const p = PLACES[i];
   drawSel(); fly(p);
   renderList($('search').value);
@@ -204,10 +217,10 @@ function select(i) {
   const near = ROADS.map((r, k) => [r, k]).filter(([r]) => r[0] === i || r[1] === i).map(([[a, b, d], k]) => {
     const j = a === i ? b : a, r = ROUTES[k], q = ratio(r), c = accOf(q);
     const real = r?.km != null ? `${Math.round(r.km)} km` : r ? `<span title="straight line, no Itiner-e road">~${Math.round(r.sk)} km</span>` : '–';
-    return `<tr><td><a href="#" data-i="${j}">${PLACES[j].n}</a></td>
+    return `<tr><td><a href="#" data-i="${j}">${PLACES[j].n}</a> <a href="#" data-k="${k}" title="select this road">›</a></td>
       <td class="n">${d ? `${roman(d)} <small>${r ? UNIT[r.u][1] : ''}</small>${r?.rk ? `<br><small>${Math.round(r.rk)} km</small>` : ''}` : '–'}</td>
       <td class="n">${real}</td>
-      <td class="n r" style="color:${c ? c[1] : '#888'}">${q ? q.toFixed(2) : '–'}</td></tr>`;
+      <td class="n r" style="color:${accCol(q)}">${q ? q.toFixed(2) : '–'}</td></tr>`;
   });
   $('info').innerHTML = `<h2>${p.k || p.n}</h2>
     ${p.k && p.k !== p.n ? `<div>On the Table: <em>${p.n}</em></div>` : ''}
@@ -222,14 +235,34 @@ function select(i) {
     ${near.length ? `<table class="legs"><tr><th>Road to</th><th class="n">Table</th><th class="n">Real</th><th class="n" title="real ÷ Table">ratio</th></tr>${near.join('')}</table>` : ''}`;
 }
 
+function selectRoad(k) {
+  selRoad = k; selected = null;
+  const [a, b, d] = ROADS[k], r = ROUTES[k] || {}, q = ratio(r), real = r.km ?? r.sk;
+  drawSel(); renderList($('search').value); draw();
+  if (mode === 'osm' && r.sk != null) window.lmap.flyToBounds(L.latLngBounds(r.line || [PLACES[a].ll, PLACES[b].ll]), { padding: [40, 40], maxZoom: 11 });
+  const diff = r.rk && real != null ? real - r.rk : null;
+  const cert = r.cert ? ['certain', 'conjectured', 'hypothetical', 'off-road'].map((n, i) => r.cert[i] ? `<li>${Math.round(r.cert[i] * 100)}% ${n}</li>` : '').join('') : '';
+  $('info').innerHTML = `<h2>Road</h2>
+    <div><a href="#" data-i="${a}">${PLACES[a].k || PLACES[a].n}</a> – <a href="#" data-i="${b}">${PLACES[b].k || PLACES[b].n}</a></div>
+    <table class="legs">
+      <tr><td>Expected (Table)</td><td class="n">${d ? `${roman(d)} ${UNIT[r.u || 'm'][1]}${r.rk ? ` = <b>${r.rk.toFixed(1)} km</b>` : ''}` : 'no distance'}</td></tr>
+      ${r.uq ? '<tr><td colspan="2"><small>Unit uncertain beyond the Euphrates; read as Roman miles</small></td></tr>' : ''}
+      <tr><td>${r.km != null ? 'Current (along the Roman road)' : 'Current (straight line, no Itiner-e road)'}</td><td class="n"><b>${real != null ? real.toFixed(1) + ' km' : '–'}</b></td></tr>
+      ${diff != null ? `<tr><td>Difference</td><td class="n r" style="color:${accCol(q)}">${diff > 0 ? '+' : ''}${diff.toFixed(1)} km (${diff > 0 ? '+' : ''}${Math.round((q - 1) * 100)}%)</td></tr>` : ''}
+      ${r.km != null ? `<tr><td>Straight line</td><td class="n">${r.sk.toFixed(1)} km</td></tr>` : ''}
+    </table>
+    ${cert ? `<div style="margin-top:6px"><small><strong>Itiner-e certainty along the route:</strong></small><ul class="reasons">${cert}</ul></div>` : ''}
+    ${r.dt ? '<p><small>Long detour: probably a gap in Itiner-e or a sea crossing.</small></p>' : ''}`;
+}
+
 function legHtml(k, from) {
-  const [a, b, d] = ROADS[k], r = ROUTES[k] || {}, q = ratio(r), c = accOf(q);
+  const [a, b, d] = ROADS[k], r = ROUTES[k] || {}, q = ratio(r);
   const [x, y] = from === b ? [b, a] : [a, b];
   const cert = r.cert ? ['certain', 'conjectured', 'hypothetical', 'off-road'].map((n, i) => r.cert[i] ? `${Math.round(r.cert[i] * 100)}% ${n}` : '').filter(Boolean).join(', ') : '';
   return `<b>${PLACES[x].n} – ${PLACES[y].n}</b><br>
     Table: ${d ? `${roman(d)} = ${d} ${UNIT[r.u || 'm'][0]}${r.rk ? ` ≈ ${Math.round(r.rk)} km` : ''}${r.uq ? ' (unit uncertain)' : ''}` : 'no distance'}<br>
     ${r.km != null ? `Along the Roman road: ${Math.round(r.km)} km <small>(${cert})</small>` : `No Itiner-e road; straight line ${Math.round(r.sk)} km`}<br>
-    Straight line: ${Math.round(r.sk)} km${q ? `<br>Real ÷ Table: <b style="color:${c[1]}">${q.toFixed(2)}</b>` : ''}
+    Straight line: ${Math.round(r.sk)} km${q ? `<br>Real ÷ Table: <b style="color:${accCol(q)}">${q.toFixed(2)}</b>` : ''}
     ${r.dt ? '<br><small>Long detour: probably a gap in Itiner-e or a sea crossing</small>' : ''}`;
 }
 
@@ -258,11 +291,16 @@ function renderList(q = '') {
 }
 
 $('list').addEventListener('click', e => { const li = e.target.closest('li[data-i]'); if (li) select(+li.dataset.i); });
-$('info').addEventListener('click', e => { const a = e.target.closest('a[data-i]'); if (a) { e.preventDefault(); select(+a.dataset.i); } });
+$('info').addEventListener('click', e => {
+  const a = e.target.closest('a[data-i], a[data-k]'); if (!a) return;
+  e.preventDefault(); a.dataset.k != null ? selectRoad(+a.dataset.k) : select(+a.dataset.i);
+});
 $('search').addEventListener('input', e => renderList(e.target.value));
 $('fAll').onchange = () => renderList($('search').value);
 $('fDots').onchange = () => draw();
-$('fRoads').onchange = () => { renderLegend(); draw(); };
+$('fAcc').onchange = () => { renderLegend(); draw(); };
+$('fStreets').onchange = () => { if (mode !== 'osm') return; const on = $('fStreets').checked;
+  window.lmap.removeLayer(on ? terrain : osm); (on ? osm : terrain).addTo(window.lmap); };
 $('fColour').onchange = () => { renderLegend(); draw(); renderList($('search').value); };
 $('bPeut').onclick = () => mode !== 'peut' && setMode('peut');
 $('bOsm').onclick = () => mode !== 'osm' && setMode('osm');
