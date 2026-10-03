@@ -34,7 +34,7 @@
   .filters { display:flex; gap:10px; font-size:13px; margin-top:8px; flex-wrap:wrap; }
   .filters label { display:flex; align-items:center; gap:4px; cursor:pointer; }
   .dot { display:inline-block; width:9px; height:9px; border-radius:50%; margin-right:4px; vertical-align:middle; }
-  .d0 { background:#1d4fa8; } .d1 { background:#2e8b57; } .d2 { background:#d08a1c; } .dn { background:#999; }
+  .d0 { background:#1d4fa8; } .d1 { background:#2e8b57; } .d2 { background:#d08a1c; } .d3 { background:#9b59b6; } .dn { background:#999; }
   #count { font-size:12px; opacity:.7; padding:4px 16px; }
   .note { font-size:11px; opacity:.7; padding:6px 16px 10px; }
   @media (max-width:700px) {
@@ -62,7 +62,7 @@
     <ul id="list"></ul>
     <div id="info"><em>Select a city to locate it.</em></div>
     <div class="note">Scan: Konrad Miller's 1887 facsimile. Places &amp; roads: <a href="https://omnesviae.org" target="_blank">OmnesViae</a> (after Talbert).<br>
-      <span class="dot d0"></span>placed by hand <span class="dot d1"></span>label read on scan <span class="dot d2"></span>estimated along road <span class="dot dn"></span>not on scan</div>
+      <span class="dot d0"></span>placed by hand <span class="dot d1"></span>label found on scan <span class="dot d2"></span>estimated along road <span class="dot d3"></span>within its grid square <span class="dot dn"></span>not on the Table</div>
   </aside>
   <div id="map" class="peut"></div>
 </div>
@@ -70,8 +70,8 @@
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
 const W = 26381, H = 2014, STRIP = 2048;
-const COL = ['#1d4fa8', '#2e8b57', '#d08a1c'];
-const CONF = ['placed by hand', 'label read on the scan (OCR)', 'estimated along the road between neighbours'];
+const COL = ['#1d4fa8', '#2e8b57', '#d08a1c', '#9b59b6'];
+const CONF = ['placed by hand', 'label found on the scan', 'estimated along the road between neighbours', 'somewhere in its grid square (label not found)'];
 const pxy = ([x, y]) => [-y, x]; // CRS.Simple: [lat=-y, lng=x]
 const osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 18, attribution: '© OpenStreetMap contributors' });
 let PLACES = [], ROADS = [], mode = 'peut', layers, selLayer, selected = null;
@@ -144,7 +144,7 @@ function select(i) {
     ${p.k && p.k !== p.n ? `<div>On the Table: <em>${p.n}</em></div>` : ''}
     ${p.m ? `<div><strong>Today:</strong> ${p.m}</div>` : ''}
     ${p.ll ? `<div><small>${p.ll[0].toFixed(2)}°, ${p.ll[1].toFixed(2)}°</small></div>` : ''}
-    <div><small><span class="dot ${p.c != null ? 'd' + p.c : 'dn'}"></span>${p.c != null ? CONF[p.c] : 'not placed on the scan'}</small></div>
+    <div><small><span class="dot ${p.c != null ? 'd' + p.c : 'dn'}"></span>${p.c != null ? CONF[p.c] : 'not on the surviving Table'}</small>${p.g ? ` <small>· Talbert grid ${p.g.join(', ')}</small>` : ''}</div>
     ${p.note ? `<p>${p.note}</p>` : ''}
     ${near.length ? `<div style="margin-top:6px"><small>Road to: ${near.join(', ')}</small></div>` : ''}`;
 }
