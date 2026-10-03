@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tabula Peutingeriana Explorer</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700&family=IM+Fell+English:ital@0;1&display=swap" rel="stylesheet">
+<style>
+  :root { --ink:#3b2412; --red:#a8261b; --parch:#efe0b9; --parch2:#e2cc96; --sea:#9fb59a; --panel:#fbf5e6; }
+  * { box-sizing: border-box; }
+  html, body { margin:0; height:100%; font-family:'IM Fell English', Georgia, serif; color:var(--ink); background:#2a1c10; }
+  #app { display:flex; height:100%; }
+  aside { width:300px; background:var(--panel); display:flex; flex-direction:column; border-right:2px solid var(--parch2); z-index:500; }
+  header { padding:14px 16px 10px; border-bottom:1px solid var(--parch2); }
+  h1 { font-family:'Cinzel', serif; font-size:18px; margin:0 0 8px; letter-spacing:.04em; }
+  .toggle { display:flex; border:1px solid var(--ink); border-radius:6px; overflow:hidden; }
+  .toggle button { flex:1; padding:7px; border:0; background:transparent; font:inherit; cursor:pointer; color:var(--ink); }
+  .toggle button.on { background:var(--ink); color:var(--panel); }
+  #search { width:100%; margin-top:10px; padding:7px 9px; font:inherit; border:1px solid var(--parch2); border-radius:6px; background:#fff; }
+  #list { list-style:none; margin:0; padding:0; overflow-y:auto; flex:1; }
+  #list li { padding:7px 16px; cursor:pointer; border-bottom:1px solid #eee2c4; }
+  #list li:hover { background:#f3e6c4; }
+  #list li.sel { background:var(--ink); color:var(--panel); }
+  #list small { opacity:.7; }
+  #info { padding:12px 16px; border-top:1px solid var(--parch2); min-height:120px; font-size:14px; }
+  #info h2 { font-family:'Cinzel', serif; font-size:16px; margin:0 0 4px; color:var(--red); }
+  #map { flex:1; }
+  #map.peut { background:#3a2a1a; }
+  #list li.off { opacity:.55; }
+  .ring { width:30px; height:30px; border-radius:50%; border:3px solid #1d4fa8; box-shadow:0 0 0 2px #fff8; }
+  .ring.sel { animation: pulse 1.4s ease-out infinite; }
+  @keyframes pulse { 0% { box-shadow:0 0 0 0 #1d4fa8aa; } 100% { box-shadow:0 0 0 18px #1d4fa800; } }
+  .filters { display:flex; gap:10px; font-size:13px; margin-top:8px; flex-wrap:wrap; }
+  .filters label { display:flex; align-items:center; gap:4px; cursor:pointer; }
+  .dot { display:inline-block; width:9px; height:9px; border-radius:50%; margin-right:4px; vertical-align:middle; }
+  .d0 { background:#1d4fa8; } .d1 { background:#2e8b57; } .d2 { background:#d08a1c; } .dn { background:#999; }
+  #count { font-size:12px; opacity:.7; padding:4px 16px; }
+  .note { font-size:11px; opacity:.7; padding:6px 16px 10px; }
+  @media (max-width:700px) {
+    #app { flex-direction:column; }
+    aside { width:100%; height:45%; border-right:0; border-bottom:2px solid var(--parch2); }
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <aside>
+    <header>
+      <h1>Tabula Peutingeriana</h1>
+      <div class="toggle">
+        <button id="bPeut" class="on">Peutinger</button>
+        <button id="bOsm">OpenStreetMap</button>
+      </div>
+      <input id="search" placeholder="Search place (Latin or modern)…">
+      <div class="filters">
+        <label><input type="checkbox" id="fAll"> all places</label>
+        <label><input type="checkbox" id="fDots" checked> show markers</label>
+      </div>
+    </header>
+    <div id="count"></div>
+    <ul id="list"></ul>
+    <div id="info"><em>Select a city to locate it.</em></div>
+    <div class="note">Scan: Konrad Miller's 1887 facsimile. Places &amp; roads: <a href="https://omnesviae.org" target="_blank">OmnesViae</a> (after Talbert).<br>
+      <span class="dot d0"></span>placed by hand <span class="dot d1"></span>label read on scan <span class="dot d2"></span>estimated along road <span class="dot dn"></span>not on scan</div>
+  </aside>
+  <div id="map" class="peut"></div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const W = 26381, H = 2014, STRIP = 2048;
+const COL = ['#1d4fa8', '#2e8b57', '#d08a1c'];
+const CONF = ['placed by hand', 'label read on the scan (OCR)', 'estimated along the road between neighbours'];
+const pxy = ([x, y]) => [-y, x]; // CRS.Simple: [lat=-y, lng=x]
+const osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 18, attribution: '© OpenStreetMap contributors' });
+let PLACES = [], ROADS = [], mode = 'peut', layers, selLayer, selected = null;
+const $ = id => document.getElementById(id);
+
+const pos = p => mode === 'peut' ? (p.xy && pxy(p.xy)) : p.ll;
+
+function draw() {
+  layers.clearLayers();
+  const P = mode === 'peut';
+  if (P) for (let i = 0, x = 0; x < W; i++, x += STRIP)
+    L.imageOverlay(`strip_${String(i).padStart(2, '0')}.jpg`, [pxy([x, H]), pxy([Math.min(x + STRIP, W), 0])]).addTo(layers);
+  else {
+    const lines = ROADS.filter(([a, b]) => PLACES[a].ll && PLACES[b].ll).map(([a, b]) => [PLACES[a].ll, PLACES[b].ll]);
+    L.polyline(lines, { color: '#a8261b', weight: 1.5, opacity: .55, interactive: false }).addTo(layers);
+  }
+  if (!$('fDots').checked) return;
+  const r = L.canvas({ padding: .3 });
+  PLACES.forEach((p, i) => {
+    const ll = pos(p); if (!ll) return;
+    L.circleMarker(ll, { renderer: r, radius: p.k ? 6 : 4, weight: 1.5, color: '#fff', fillOpacity: .9,
+      fillColor: p.c != null ? COL[p.c] : '#999' })
+      .bindTooltip(p.n + (p.m ? ` — ${p.m}` : '')).on('click', () => select(i)).addTo(layers);
+  });
+}
+
+function drawSel() {
+  selLayer.clearLayers();
+  if (selected == null) return;
+  const ll = pos(PLACES[selected]); if (!ll) return;
+  L.marker(ll, { interactive: false, icon: L.divIcon({ className: '', iconSize: [30, 30], iconAnchor: [15, 15], html: '<div class="ring sel"></div>' }) }).addTo(selLayer);
+}
+
+function setMode(m) {
+  mode = m;
+  $('bPeut').classList.toggle('on', m === 'peut');
+  $('bOsm').classList.toggle('on', m === 'osm');
+  rebuildMap();
+  if (selected != null) fly(PLACES[selected], false);
+}
+
+function rebuildMap() {
+  // Leaflet can't change CRS on the fly, so recreate the map
+  window.lmap && window.lmap.remove();
+  const el = $('map'); el.className = mode;
+  const P = mode === 'peut';
+  const lm = L.map(el, P ? { crs: L.CRS.Simple, minZoom: -4, maxZoom: 1.5, zoomSnap: .25,
+      maxBounds: [pxy([-500, H + 300]), pxy([W + 500, -300])] } : { zoomSnap: .25, preferCanvas: true });
+  window.lmap = lm;
+  layers = L.layerGroup().addTo(lm); selLayer = L.layerGroup().addTo(lm);
+  if (!P) osm.addTo(lm);
+  draw(); drawSel();
+  if (P) lm.fitBounds([pxy([0, H]), pxy([4000, 0])]);
+  else lm.fitBounds([[28, -6], [52, 45]]);
+}
+
+function fly(p, animate = true) {
+  const ll = pos(p); if (!ll) return;
+  window.lmap.flyTo(ll, mode === 'peut' ? Math.max(window.lmap.getZoom(), 0) : 9, { animate });
+}
+
+function select(i) {
+  selected = i;
+  const p = PLACES[i];
+  drawSel(); fly(p);
+  renderList($('search').value);
+  const near = ROADS.filter(r => r[0] === i || r[1] === i)
+    .map(([a, b, d]) => { const j = a === i ? b : a; return `<a href="#" data-i="${j}">${PLACES[j].n}</a>${d ? ` <small>(${d})</small>` : ''}`; });
+  $('info').innerHTML = `<h2>${p.k || p.n}</h2>
+    ${p.k && p.k !== p.n ? `<div>On the Table: <em>${p.n}</em></div>` : ''}
+    ${p.m ? `<div><strong>Today:</strong> ${p.m}</div>` : ''}
+    ${p.ll ? `<div><small>${p.ll[0].toFixed(2)}°, ${p.ll[1].toFixed(2)}°</small></div>` : ''}
+    <div><small><span class="dot ${p.c != null ? 'd' + p.c : 'dn'}"></span>${p.c != null ? CONF[p.c] : 'not placed on the scan'}</small></div>
+    ${p.note ? `<p>${p.note}</p>` : ''}
+    ${near.length ? `<div style="margin-top:6px"><small>Road to: ${near.join(', ')}</small></div>` : ''}`;
+}
+
+function renderList(q = '') {
+  q = q.toLowerCase().trim();
+  const all = $('fAll').checked || q;
+  let rows = PLACES.map((p, i) => [p, i]).filter(([p]) => all ? true : p.k);
+  if (q) rows = rows.filter(([p]) => (p.n + ' ' + (p.k || '') + ' ' + (p.m || '')).toLowerCase().includes(q));
+  rows.sort((a, b) => (a[0].k || a[0].n).localeCompare(b[0].k || b[0].n));
+  $('count').textContent = `${rows.length} place${rows.length === 1 ? '' : 's'}`;
+  $('list').innerHTML = rows.slice(0, 300).map(([p, i]) =>
+    `<li data-i="${i}" class="${i === selected ? 'sel' : ''}"><span class="dot ${p.c != null ? 'd' + p.c : 'dn'}"></span>${p.k || p.n}<br><small>${p.k ? p.n + ' · ' : ''}${p.m || ''}</small></li>`).join('')
+    + (rows.length > 300 ? `<li><small>…refine the search to see more</small></li>` : '');
+  document.querySelector('#list li.sel')?.scrollIntoView({ block: 'nearest' });
+}
+
+$('list').addEventListener('click', e => { const li = e.target.closest('li[data-i]'); if (li) select(+li.dataset.i); });
+$('info').addEventListener('click', e => { const a = e.target.closest('a[data-i]'); if (a) { e.preventDefault(); select(+a.dataset.i); } });
+$('search').addEventListener('input', e => renderList(e.target.value));
+$('fAll').onchange = () => renderList($('search').value);
+$('fDots').onchange = () => draw();
+$('bPeut').onclick = () => mode !== 'peut' && setMode('peut');
+$('bOsm').onclick = () => mode !== 'osm' && setMode('osm');
+
+fetch('places.json').then(r => r.json()).then(d => {
+  PLACES = d.places; ROADS = d.roads;
+  renderList(); rebuildMap();
+});
+</script>
+</body>
+</html>
