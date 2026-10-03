@@ -141,6 +141,13 @@ function draw() {
       L.polyline(g || [PLACES[a].ll, PLACES[b].ll], { renderer: rr, color: col, weight: sel ? 5 : 2, opacity: sel ? .95 : .7,
         dashArray: g ? null : '4 5' })
         .bindTooltip(() => legHtml(k, a), { sticky: true }).on('click', () => select(selected === a ? b : a)).addTo(layers);
+      // 1-bit vertex confidence: overdraw runs whose vertices are all 1
+      if (g && r.c) for (let i = 0; i < g.length - 1; i++) {
+        if (r.c[i] !== '1' || r.c[i + 1] !== '1') continue;
+        let j = i + 1; while (j < g.length - 1 && r.c[j + 1] === '1') j++;
+        L.polyline(g.slice(i, j + 1), { renderer: rr, color: col, weight: (sel ? 5 : 2) + 2, opacity: 1, interactive: false }).addTo(layers);
+        i = j;
+      }
     });
   }
   if (!$('fDots').checked) return;
