@@ -205,7 +205,7 @@ $('fColour').onchange = () => { renderLegend(); draw(); renderList($('search').v
 $('bPeut').onclick = () => mode !== 'peut' && setMode('peut');
 $('bOsm').onclick = () => mode !== 'osm' && setMode('osm');
 
-fetch('places.json').then(r => r.json()).then(d => {
+fetch('places.json', { cache: 'no-cache' }) // revalidate so data updates show up immediately.then(r => r.json()).then(d => {
   PLACES = d.places; ROADS = d.roads;
   renderLegend(); renderList(); rebuildMap();
 });
