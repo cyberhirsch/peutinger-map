@@ -6,7 +6,7 @@ An interactive map of the Tabula Peutingeriana, the Roman road map that survives
 
 - **Peutinger view:** the full roll from Britain to India, using Konrad Miller's 1887 facsimile (cut into 13 image strips).
 - **OpenStreetMap view:** the same places at their real-world locations, with the Table's road network drawn over a modern map.
-- About 3,200 places can be searched by Latin or modern name; 2,702 of them are marked on the scan. Each place shows the spelling used on the Table, its modern name, its Talbert grid square, and its roads to neighbouring places with the Table's distances.
+- About 3,200 places can be searched by Latin or modern name. All 2,702 places on the surviving Table are marked on the scan. Each place shows the spelling used on the Table, its modern name, its Talbert grid square, a confidence rating, and its roads to neighbouring places with the Table's distances.
 
 ## Running it
 
@@ -25,15 +25,33 @@ Then open http://localhost:8791.
 3. **Estimates.** The remaining places were estimated along the road between already-placed neighbours, using the Table's own distances, or else put somewhere inside their grid square.
 4. **Visual review.** Every marker was checked on numbered crops of the scan, one reviewer per Talbert segment. Each wrong or estimated marker was moved to the start of its actual label, and a second, independent checker re-examined every correction before it was applied.
 
+5. **The last 13.** The last 13 places had no readable label: 11 unnamed or illegible road stations, Rome's harbour (Portus, drawn without a name), and the faint Viratedo. They were located by comparing Miller's copy with photos of the original manuscript and following the road from the confirmed neighbours. Each was then checked independently.
+
 Each marker is coloured by the result:
 
 | Colour | Meaning | Places |
 |---|---|---|
 | Blue | Placed by hand | 46 |
-| Green | Label found on the scan and visually confirmed | 2,643 |
-| Orange | Estimated along the road (label illegible, or an unnamed station) | 4 |
-| Purple | Somewhere in its Talbert grid square (label not found) | 9 |
+| Green | Found on the scan (label or symbol) and visually confirmed | 2,645 |
+| Teal | Unnamed station, placed from the road layout | 11 |
 | Grey | Not on the surviving Table: the lost western end, filled in by OmnesViae from the Antonine Itinerary. OpenStreetMap view only | |
+
+## Confidence ratings
+
+Every place on the scan has a confidence score from 0 to 100. The info panel shows the score and the reasons behind it, and the "colour by" switch colours the markers by confidence.
+
+| Band | Score | Typical evidence |
+|---|---|---|
+| High | 85–99 | Label read on the scan and confirmed by eye, or moved to its label by a reviewer and checked independently |
+| Medium | 65–84 | Spelling on Miller's copy differs from Talbert's reading, the position was set by the checker alone, or it is an unnamed station placed from the road layout |
+| Low | 40–64 | Unnamed station where the checker was only moderately sure |
+| Very low | under 40 | Not confirmed (currently none) |
+
+Points are deducted for falling outside the place's Talbert grid square, being implausibly far from its road neighbours, or sharing a spot with another place. Current totals: 2,638 high, 61 medium, 2 low.
+
+The scores were calibrated by hand-checking samples against the scan. 36 of 36 reviewer corrections and 18 of 18 reviewer confirmations of weak OCR matches were correct, and so were all 13 of the last places.
+
+The **real-world location** is rated separately from OmnesViae's data: *identified* (a modern place is given), *approximate* (OmnesViae marks it with "~", or gives no modern name) or *unknown* (no coordinates).
 
 The red road lines were also traced from the scan (`tools/trace.py`), and the traced roads guided the estimates.
 
@@ -48,6 +66,6 @@ The red road lines were also traced from the scan (`tools/trace.py`), and the tr
 ## Files
 
 - `index.html`: the app.
-- `places.json`: places (Table spelling `n`, modern name `m`, real-world coordinates `ll`, position on the scan `xy`, how it was placed `c`, Talbert grid square `g`) and roads (pairs of places with distances).
+- `places.json`: places (Table spelling `n`, modern name `m`, real-world coordinates `ll`, position on the scan `xy`, how it was placed `c`, Talbert grid square `g`, confidence score `q` with reasons `qr`, real-world location rating `lq`) and roads (pairs of places with distances).
 - `strip_00.jpg` to `strip_12.jpg`: the scan, cut into 2048-px-wide strips.
-- `tools/`: the extraction scripts: road tracing (`trace.py`), OCR (`ocr.swift`), grid model (`grid.py`), grid-constrained matching (`ocrmatch2.py`), review crops and contact sheets (`render_review.py`, `render_points.py`, `zoom.py`), applying the review (`apply_review.py`) and building `places.json` (`build_places.py`). They're written for a local working folder and need path changes before they can be re-run.
+- `tools/`: the extraction scripts: road tracing (`trace.py`), OCR (`ocr.swift`), grid model (`grid.py`), grid-constrained matching (`ocrmatch2.py`), review crops and contact sheets (`render_review.py`, `render_points.py`, `zoom.py`), applying the review (`apply_review.py`, `apply_m13.py`), confidence scoring (`confidence.py`) and building `places.json` (`build_places.py`). They're written for a local working folder and need path changes before they can be re-run.

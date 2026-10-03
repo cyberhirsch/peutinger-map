@@ -36,6 +36,11 @@
   .dot { display:inline-block; width:9px; height:9px; border-radius:50%; margin-right:4px; vertical-align:middle; }
   .d0 { background:#1d4fa8; } .d1 { background:#2e8b57; } .d2 { background:#d08a1c; } .d3 { background:#9b59b6; } .dn { background:#999; }
   #count { font-size:12px; opacity:.7; padding:4px 16px; }
+  .filters select { font:inherit; font-size:13px; border:1px solid var(--parch2); border-radius:4px; background:#fff; color:var(--ink); }
+  .conf { margin-top:8px; padding:6px 8px; background:#f3e9cf; border-radius:6px; }
+  .bar { display:inline-block; width:70px; height:6px; background:#e2d3ad; border-radius:3px; vertical-align:middle; margin-left:6px; overflow:hidden; }
+  .bar i { display:block; height:100%; }
+  .reasons { margin:4px 0 0 16px; padding:0; font-size:12px; opacity:.85; }
   .note { font-size:11px; opacity:.7; padding:6px 16px 10px; }
   @media (max-width:700px) {
     #app { flex-direction:column; }
@@ -56,13 +61,13 @@
       <div class="filters">
         <label><input type="checkbox" id="fAll"> all places</label>
         <label><input type="checkbox" id="fDots" checked> show markers</label>
+        <label>colour by <select id="fColour"><option value="method">how placed</option><option value="conf">confidence</option></select></label>
       </div>
     </header>
     <div id="count"></div>
     <ul id="list"></ul>
     <div id="info"><em>Select a city to locate it.</em></div>
-    <div class="note">Scan: Konrad Miller's 1887 facsimile. Places &amp; roads: <a href="https://omnesviae.org" target="_blank">OmnesViae</a> (after Talbert).<br>
-      <span class="dot d0"></span>placed by hand <span class="dot d1"></span>label found on scan <span class="dot d2"></span>estimated along road <span class="dot d3"></span>within its grid square <span class="dot dn"></span>not on the Table</div>
+    <div class="note">Scan: Konrad Miller's 1887 facsimile. Places &amp; roads: <a href="https://omnesviae.org" target="_blank">OmnesViae</a> (after Talbert).<br><span id="legend"></span></div>
   </aside>
   <div id="map" class="peut"></div>
 </div>
@@ -70,8 +75,22 @@
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
 const W = 26381, H = 2014, STRIP = 2048;
-const COL = ['#1d4fa8', '#2e8b57', '#d08a1c', '#9b59b6'];
-const CONF = ['placed by hand', 'label found on the scan', 'estimated along the road between neighbours', 'somewhere in its grid square (label not found)'];
+const COL = ['#1d4fa8', '#2e8b57', '#d08a1c', '#9b59b6', '#16a0a0'];
+const CONF = ['placed by hand', 'found on the scan (label or symbol)', 'estimated along the road between neighbours', 'somewhere in its grid square (label not found)', 'unnamed station, placed from the road layout'];
+const BANDS = [[85, 'High', '#2e8b57'], [65, 'Medium', '#d4a017'], [40, 'Low', '#e06b1c'], [0, 'Very low', '#c0392b']];
+const LQ = ['unknown (no modern coordinates)', 'approximate', 'identified'];
+const band = q => BANDS.find(([t]) => q >= t);
+const colourOf = p => $('fColour').value === 'conf'
+  ? (p.q != null ? band(p.q)[2] : '#999')
+  : (p.c != null ? COL[p.c] : '#999');
+const dot = p => `<span class="dot" style="background:${colourOf(p)}"></span>`;
+function renderLegend() {
+  const items = $('fColour').value === 'conf'
+    ? [...BANDS.map(([t, n, c]) => [c, `${n} confidence`]), ['#999', 'not on the Table']]
+    : [...['placed by hand', 'found on scan', 'estimated along road', 'within its grid square', 'unnamed station'].map((n, i) => [COL[i], n, i])
+        .filter(([, , i]) => PLACES.some(p => p.c === i)), ['#999', 'not on the Table']];
+  $('legend').innerHTML = items.map(([c, n]) => `<span class="dot" style="background:${c}"></span>${n}`).join(' ');
+}
 const pxy = ([x, y]) => [-y, x]; // CRS.Simple: [lat=-y, lng=x]
 const osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 18, attribution: '© OpenStreetMap contributors' });
 let PLACES = [], ROADS = [], mode = 'peut', layers, selLayer, selected = null;
@@ -93,7 +112,7 @@ function draw() {
   PLACES.forEach((p, i) => {
     const ll = pos(p); if (!ll) return;
     L.circleMarker(ll, { renderer: r, radius: p.k ? 6 : 4, weight: 1.5, color: '#fff', fillOpacity: .9,
-      fillColor: p.c != null ? COL[p.c] : '#999' })
+      fillColor: colourOf(p) })
       .bindTooltip(p.n + (p.m ? ` — ${p.m}` : '')).on('click', () => select(i)).addTo(layers);
   });
 }
@@ -144,7 +163,10 @@ function select(i) {
     ${p.k && p.k !== p.n ? `<div>On the Table: <em>${p.n}</em></div>` : ''}
     ${p.m ? `<div><strong>Today:</strong> ${p.m}</div>` : ''}
     ${p.ll ? `<div><small>${p.ll[0].toFixed(2)}°, ${p.ll[1].toFixed(2)}°</small></div>` : ''}
-    <div><small><span class="dot ${p.c != null ? 'd' + p.c : 'dn'}"></span>${p.c != null ? CONF[p.c] : 'not on the surviving Table'}</small>${p.g ? ` <small>· Talbert grid ${p.g.join(', ')}</small>` : ''}</div>
+    <div><small><span class="dot" style="background:${p.c != null ? COL[p.c] : '#999'}"></span>${p.c != null ? CONF[p.c] : 'not on the surviving Table'}</small>${p.g ? ` <small>· Talbert grid ${p.g.join(', ')}</small>` : ''}</div>
+    ${p.q != null ? `<div class="conf"><strong>Position on the scan:</strong> ${band(p.q)[1]} <small>(${p.q}/100)</small><span class="bar"><i style="width:${p.q}%;background:${band(p.q)[2]}"></i></span>
+      <ul class="reasons">${(p.qr || []).map(r => `<li>${r}</li>`).join('')}</ul></div>` : ''}
+    <div style="margin-top:4px"><small><strong>Real-world location:</strong> ${LQ[p.lq ?? 0]}</small></div>
     ${p.note ? `<p>${p.note}</p>` : ''}
     ${near.length ? `<div style="margin-top:6px"><small>Road to: ${near.join(', ')}</small></div>` : ''}`;
 }
@@ -157,7 +179,7 @@ function renderList(q = '') {
   rows.sort((a, b) => (a[0].k || a[0].n).localeCompare(b[0].k || b[0].n));
   $('count').textContent = `${rows.length} place${rows.length === 1 ? '' : 's'}`;
   $('list').innerHTML = rows.slice(0, 300).map(([p, i]) =>
-    `<li data-i="${i}" class="${i === selected ? 'sel' : ''}"><span class="dot ${p.c != null ? 'd' + p.c : 'dn'}"></span>${p.k || p.n}<br><small>${p.k ? p.n + ' · ' : ''}${p.m || ''}</small></li>`).join('')
+    `<li data-i="${i}" class="${i === selected ? 'sel' : ''}">${dot(p)}${p.k || p.n}<br><small>${p.k ? p.n + ' · ' : ''}${p.m || ''}</small></li>`).join('')
     + (rows.length > 300 ? `<li><small>…refine the search to see more</small></li>` : '');
   document.querySelector('#list li.sel')?.scrollIntoView({ block: 'nearest' });
 }
@@ -167,12 +189,13 @@ $('info').addEventListener('click', e => { const a = e.target.closest('a[data-i]
 $('search').addEventListener('input', e => renderList(e.target.value));
 $('fAll').onchange = () => renderList($('search').value);
 $('fDots').onchange = () => draw();
+$('fColour').onchange = () => { renderLegend(); draw(); renderList($('search').value); };
 $('bPeut').onclick = () => mode !== 'peut' && setMode('peut');
 $('bOsm').onclick = () => mode !== 'osm' && setMode('osm');
 
 fetch('places.json').then(r => r.json()).then(d => {
   PLACES = d.places; ROADS = d.roads;
-  renderList(); rebuildMap();
+  renderLegend(); renderList(); rebuildMap();
 });
 </script>
 </body>

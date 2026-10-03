@@ -9,6 +9,7 @@ OVID = {k: v[0][0] for k, v in cand.items()}; OVID['Babylonia'] = 'TPPlace2702';
 cur = {OVID[k]: (k, p) for k, p in old.items()}
 st = {s['id']: s for s in json.load(open(f'{S}/{fn}'))}
 grid = json.load(open(f'{S}/talbert_grid.json'))['grid']
+conf = json.load(open(f'{S}/confidence.json')) if len(sys.argv) < 4 else json.load(open(sys.argv[3]))
 g = json.load(open(f'{S}/ov.json'))['@graph']
 ids, out = {}, []
 for p in g:
@@ -22,6 +23,10 @@ for p in g:
         o['xy'] = [s['x'], s['y']]; o['c'] = s.get('status', 0)
         if o['n'] == '(unnamed)' and o['c'] == 1: o['c'] = 2   # no label to confirm
     if k in grid: o['g'] = grid[k]
+    if s and k in conf: o['q'] = conf[k]['s']; o['qr'] = conf[k]['r']
+    # real-world location: 2 identified, 1 approximate (OmnesViae marks these with ~ or gives no modern name), 0 unknown
+    if 'lat' in p: o['lq'] = 1 if ('~' in p.get('modern', '') or not p.get('modern')) else 2
+    else: o['lq'] = 0
     if k in cur:
         name, prev = cur[k]; o['k'] = name; o['m'] = prev.get('m', o.get('m'))
         if prev.get('note'): o['note'] = prev['note']
