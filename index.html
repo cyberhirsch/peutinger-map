@@ -41,6 +41,12 @@
   .bar { display:inline-block; width:70px; height:6px; background:#e2d3ad; border-radius:3px; vertical-align:middle; margin-left:6px; overflow:hidden; }
   .bar i { display:block; height:100%; }
   .reasons { margin:4px 0 0 16px; padding:0; font-size:12px; opacity:.85; }
+  .legs { width:100%; border-collapse:collapse; font-size:12px; margin-top:4px; }
+  .legs td, .legs th { padding:2px 4px 2px 0; text-align:left; vertical-align:top; }
+  .legs th { font-weight:normal; opacity:.7; border-bottom:1px solid var(--parch2); }
+  .legs td.n { text-align:right; white-space:nowrap; }
+  .legs .r { font-weight:bold; }
+  #info { max-height:55%; overflow-y:auto; }
   .note { font-size:11px; opacity:.7; padding:6px 16px 10px; }
   @media (max-width:700px) {
     #app { flex-direction:column; }
@@ -62,12 +68,13 @@
         <label><input type="checkbox" id="fAll"> all places</label>
         <label><input type="checkbox" id="fDots" checked> show markers</label>
         <label>colour by <select id="fColour"><option value="method">how placed</option><option value="conf">confidence</option></select></label>
+        <label>roads <select id="fRoads"><option value="acc">Table vs. real length</option><option value="plain">plain</option></select></label>
       </div>
     </header>
     <div id="count"></div>
     <ul id="list"></ul>
     <div id="info"><em>Select a city to locate it.</em></div>
-    <div class="note">Scan: Konrad Miller's 1887 facsimile. Places &amp; roads: <a href="https://omnesviae.org" target="_blank">OmnesViae</a> (after Talbert). Identifiers: <a href="https://vici.org" target="_blank">Vici.org</a>, <a href="https://pleiades.stoa.org" target="_blank">Pleiades</a> (CC BY).<br><span id="legend"></span></div>
+    <div class="note">Scan: Konrad Miller's 1887 facsimile. Places &amp; roads: <a href="https://omnesviae.org" target="_blank">OmnesViae</a> (after Talbert). Identifiers: <a href="https://vici.org" target="_blank">Vici.org</a>, <a href="https://pleiades.stoa.org" target="_blank">Pleiades</a> (CC BY). Road courses: <a href="https://itiner-e.org" target="_blank">Itiner-e</a> (CC BY).<br><span id="legend"></span></div>
   </aside>
   <div id="map" class="peut"></div>
 </div>
@@ -89,10 +96,32 @@ function renderLegend() {
     ? [...BANDS.map(([t, n, c]) => [c, `${n} confidence`]), ['#999', 'not on the Table']]
     : [...['placed by hand', 'found on scan', 'estimated along road', 'within its grid square', 'unnamed station'].map((n, i) => [COL[i], n, i])
         .filter(([, , i]) => PLACES.some(p => p.c === i)), ['#999', 'not on the Table']];
-  $('legend').innerHTML = items.map(([c, n]) => `<span class="dot" style="background:${c}"></span>${n}`).join(' ');
+  $('legend').innerHTML = items.map(([c, n]) => `<span class="dot" style="background:${c}"></span>${n}`).join(' ')
+    + ($('fRoads').value === 'acc' ? '<br>Roads, real ÷ Table length: ' + [...ACC.map(([, c, n]) => [c, n]), ['#888', 'no distance']]
+      .map(([c, n]) => `<span class="dot" style="background:${c}"></span>${n}`).join(' ') + ' · dashed: no Itiner-e road' : '');
 }
 const pxy = ([x, y]) => [-y, x]; // CRS.Simple: [lat=-y, lng=x]
 const osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 18, attribution: '© OpenStreetMap contributors' });
+// Table vs. real length: real road km / (Table number × unit)
+const ACC = [[0.15, '#2e8b57', 'within 15%'], [0.35, '#d4a017', '15–35% off'], [Infinity, '#c0392b', 'over 35% off']];
+const UNIT = { m: ['Roman miles', 'mp'], l: ['Gallic leagues', 'leugae'] };
+const ratio = r => r && r.rk && (r.km ?? r.sk) / r.rk;
+const accOf = q => q ? ACC.find(([t]) => Math.abs(Math.log(q)) <= Math.log(1 + t)) : null;
+const roman = n => { let s = ''; for (const [v, c] of [[1000,'M'],[900,'CM'],[500,'D'],[400,'CD'],[100,'C'],[90,'XC'],[50,'L'],[40,'XL'],[10,'X'],[9,'IX'],[5,'V'],[4,'IV'],[1,'I']]) while (n >= v) { s += c; n -= v; } return s; };
+function decode(str) { // Google encoded polyline, precision 5
+  const out = []; let i = 0, la = 0, lo = 0;
+  while (i < str.length) {
+    for (const k of [0, 1]) {
+      let b, sh = 0, v = 0;
+      do { b = str.charCodeAt(i++) - 63; v |= (b & 31) << sh; sh += 5; } while (b >= 32);
+      v = v & 1 ? ~(v >> 1) : v >> 1;
+      if (k) lo += v; else la += v;
+    }
+    out.push([la / 1e5, lo / 1e5]);
+  }
+  return out;
+}
+let ROUTES = [];
 let PLACES = [], ROADS = [], mode = 'peut', layers, selLayer, selected = null;
 const $ = id => document.getElementById(id);
 
@@ -104,8 +133,15 @@ function draw() {
   if (P) for (let i = 0, x = 0; x < W; i++, x += STRIP)
     L.imageOverlay(`strip_${String(i).padStart(2, '0')}.jpg`, [pxy([x, H]), pxy([Math.min(x + STRIP, W), 0])]).addTo(layers);
   else {
-    const lines = ROADS.filter(([a, b]) => PLACES[a].ll && PLACES[b].ll).map(([a, b]) => [PLACES[a].ll, PLACES[b].ll]);
-    L.polyline(lines, { color: '#a8261b', weight: 1.5, opacity: .55, interactive: false }).addTo(layers);
+    const acc = $('fRoads').value === 'acc', rr = L.canvas({ padding: .3, tolerance: 4 });
+    ROADS.forEach(([a, b, d], k) => {
+      if (!PLACES[a].ll || !PLACES[b].ll) return;
+      const r = ROUTES[k], g = r && r.line, sel = selected === a || selected === b;
+      const col = acc ? (accOf(ratio(r)) || [, '#888'])[1] : '#a8261b';
+      L.polyline(g || [PLACES[a].ll, PLACES[b].ll], { renderer: rr, color: col, weight: sel ? 5 : 2, opacity: sel ? .95 : .7,
+        dashArray: g ? null : '4 5' })
+        .bindTooltip(() => legHtml(k, a), { sticky: true }).on('click', () => select(selected === a ? b : a)).addTo(layers);
+    });
   }
   if (!$('fDots').checked) return;
   const r = L.canvas({ padding: .3 });
@@ -157,8 +193,15 @@ function select(i) {
   const p = PLACES[i];
   drawSel(); fly(p);
   renderList($('search').value);
-  const near = ROADS.filter(r => r[0] === i || r[1] === i)
-    .map(([a, b, d]) => { const j = a === i ? b : a; return `<a href="#" data-i="${j}">${PLACES[j].n}</a>${d ? ` <small>(${d})</small>` : ''}`; });
+  if (mode === 'osm') draw();
+  const near = ROADS.map((r, k) => [r, k]).filter(([r]) => r[0] === i || r[1] === i).map(([[a, b, d], k]) => {
+    const j = a === i ? b : a, r = ROUTES[k], q = ratio(r), c = accOf(q);
+    const real = r?.km != null ? `${Math.round(r.km)} km` : r ? `<span title="straight line, no Itiner-e road">~${Math.round(r.sk)} km</span>` : '–';
+    return `<tr><td><a href="#" data-i="${j}">${PLACES[j].n}</a></td>
+      <td class="n">${d ? `${roman(d)} <small>${r ? UNIT[r.u][1] : ''}</small>${r?.rk ? `<br><small>${Math.round(r.rk)} km</small>` : ''}` : '–'}</td>
+      <td class="n">${real}</td>
+      <td class="n r" style="color:${c ? c[1] : '#888'}">${q ? q.toFixed(2) : '–'}</td></tr>`;
+  });
   $('info').innerHTML = `<h2>${p.k || p.n}</h2>
     ${p.k && p.k !== p.n ? `<div>On the Table: <em>${p.n}</em></div>` : ''}
     ${p.m ? `<div><strong>Today:</strong> ${p.m}</div>` : ''}
@@ -169,7 +212,18 @@ function select(i) {
     <div style="margin-top:4px"><small><strong>Real-world location:</strong> ${LQ[p.lq ?? 0]}${p.dk ? ` · OmnesViae and Pleiades differ by ${p.dk} km` : ''}${p.lls ? ` · map position from ${p.lls}` : ''}</small></div>
     ${links(p)}
     ${p.note ? `<p>${p.note}</p>` : ''}
-    ${near.length ? `<div style="margin-top:6px"><small>Road to: ${near.join(', ')}</small></div>` : ''}`;
+    ${near.length ? `<table class="legs"><tr><th>Road to</th><th class="n">Table</th><th class="n">Real</th><th class="n" title="real ÷ Table">ratio</th></tr>${near.join('')}</table>` : ''}`;
+}
+
+function legHtml(k, from) {
+  const [a, b, d] = ROADS[k], r = ROUTES[k] || {}, q = ratio(r), c = accOf(q);
+  const [x, y] = from === b ? [b, a] : [a, b];
+  const cert = r.cert ? ['certain', 'conjectured', 'hypothetical', 'off-road'].map((n, i) => r.cert[i] ? `${Math.round(r.cert[i] * 100)}% ${n}` : '').filter(Boolean).join(', ') : '';
+  return `<b>${PLACES[x].n} – ${PLACES[y].n}</b><br>
+    Table: ${d ? `${roman(d)} = ${d} ${UNIT[r.u || 'm'][0]}${r.rk ? ` ≈ ${Math.round(r.rk)} km` : ''}${r.uq ? ' (unit uncertain)' : ''}` : 'no distance'}<br>
+    ${r.km != null ? `Along the Roman road: ${Math.round(r.km)} km <small>(${cert})</small>` : `No Itiner-e road; straight line ${Math.round(r.sk)} km`}<br>
+    Straight line: ${Math.round(r.sk)} km${q ? `<br>Real ÷ Table: <b style="color:${c[1]}">${q.toFixed(2)}</b>` : ''}
+    ${r.dt ? '<br><small>Long detour: probably a gap in Itiner-e or a sea crossing</small>' : ''}`;
 }
 
 function links(p) {
@@ -201,13 +255,18 @@ $('info').addEventListener('click', e => { const a = e.target.closest('a[data-i]
 $('search').addEventListener('input', e => renderList(e.target.value));
 $('fAll').onchange = () => renderList($('search').value);
 $('fDots').onchange = () => draw();
+$('fRoads').onchange = () => { renderLegend(); draw(); };
 $('fColour').onchange = () => { renderLegend(); draw(); renderList($('search').value); };
 $('bPeut').onclick = () => mode !== 'peut' && setMode('peut');
 $('bOsm').onclick = () => mode !== 'osm' && setMode('osm');
 
 // revalidate so data updates show up immediately
-fetch('places.json', { cache: 'no-cache' }).then(r => r.json()).then(d => {
+Promise.all([
+  fetch('places.json', { cache: 'no-cache' }).then(r => r.json()),
+  fetch('routes.json', { cache: 'no-cache' }).then(r => r.json()).catch(() => ({ routes: [] })),
+]).then(([d, rt]) => {
   PLACES = d.places; ROADS = d.roads;
+  ROUTES = rt.routes.map(r => r && (r.g ? { ...r, line: decode(r.g) } : r));
   renderLegend(); renderList(); rebuildMap();
 });
 </script>

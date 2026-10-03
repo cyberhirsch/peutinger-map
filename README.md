@@ -55,6 +55,15 @@ The **real-world location** is rated separately from OmnesViae's data: *identifi
 
 The red road lines were also traced from the scan (`tools/trace.py`), and the traced roads guided the estimates.
 
+## Road courses and distances
+
+Each road on the Table is routed along [Itiner-e](https://itiner-e.org), the digital atlas of Roman roads (`tools/itinere_routes.py`). Each place is linked to the Itiner-e road vertices nearest to it, within 10 km, and the shortest path between the two places becomes the road's real course and length. In the OpenStreetMap view the roads follow these courses. Hovering over a road shows its Table distance, its real length, the share of the route Itiner-e rates certain, conjectured or hypothetical, and the straight-line distance.
+
+- **Routed along Itiner-e:** 2,574 of the 3,374 roads. **Straight line only** (dashed): 179, where a place is more than 10 km from any Itiner-e road. **No coordinates:** 621.
+- **Units:** Roman miles (1.48 km). In Gaul north of Narbonensis and in the Germanies the Table counts in Gallic leagues (2.22 km). Beyond the Euphrates the unit is uncertain, and the numbers are read as miles.
+- **Real ÷ Table:** the real length divided by the Table's distance. The median is 1.07 for roads in miles and 1.04 for roads in leagues. The "roads" switch colours each road green (within 15%), amber (15–35% off) or red (over 35% off). A large mismatch usually points to a copying error in the number, a misplaced station, or a gap in Itiner-e.
+- **Detours:** 45 routes are more than twice the straight-line distance plus 10 km. These are usually sea crossings or gaps in the Itiner-e network, and they are flagged.
+
 ## Linked identifiers
 
 Places are linked to other gazetteers of the ancient world. Counts are for the 2,701 places on the scan:
@@ -82,6 +91,7 @@ The real-world location rating gains a top level, *precise*, for when OmnesViae 
 - **Places and roads:** [OmnesViae](https://omnesviae.org) by René Voorburg, based on Richard J. A. Talbert, *Rome's World: The Peutinger Map Reconsidered* (Cambridge University Press, 2010). `places.json` is derived from the OmnesViae dataset, which is MIT-licensed; see [LICENSE-omnesviae.txt](LICENSE-omnesviae.txt).
 - **Identifiers:** [Vici.org](https://vici.org) linked data (CC0 metadata, via its SPARQL endpoint) and the [Pleiades](https://pleiades.stoa.org) data dumps (CC BY). Vici's descriptions are CC BY-SA, so they are linked, not copied.
 - **Grid squares:** the segment-grid references (e.g. Roma = 4B5) come from the online database accompanying *Rome's World*, consulted via the Internet Archive.
+- **Road courses:** [Itiner-e](https://itiner-e.org), static version 2024: de Soto, P. et al. (2025), *A High-Resolution Dataset of Roads of the Roman Empire*, [doi:10.5281/zenodo.17122148](https://doi.org/10.5281/zenodo.17122148). CC BY 4.0. Itiner-e's roads were routed between the Table's places and simplified to 100 m.
 - **Modern map:** © [OpenStreetMap](https://www.openstreetmap.org/copyright) contributors.
 - **Map library:** [Leaflet](https://leafletjs.com).
 
@@ -89,5 +99,6 @@ The real-world location rating gains a top level, *precise*, for when OmnesViae 
 
 - `index.html`: the app.
 - `places.json`: places (Table spelling `n`, modern name `m`, real-world coordinates `ll`, position on the scan `xy`, how it was placed `c`, Talbert grid square `g`, confidence score `q` with reasons `qr`, real-world location rating `lq`, identifiers `ids` with Vici `v`, Pleiades `p`, Wikidata `w`, Livius `l` and DARE `d`, Pleiades name `pt`, Vici type `vt`) and roads (pairs of places with distances).
+- `routes.json`: one entry per road, in the same order: the real course as an encoded polyline `g`, the length along Itiner-e `km`, the straight-line distance `sk`, the Table distance in km `rk`, the unit `u` (`m` miles, `l` leagues), the share of the route that is certain, conjectured, hypothetical or off-road `cert`, and flags for an uncertain unit `uq`, a long detour `dt`, and geometry that runs from the second place to the first `rev`.
 - `strip_00.jpg` to `strip_12.jpg`: the scan, cut into 2048-px-wide strips.
-- `tools/`: the extraction scripts: road tracing (`trace.py`), OCR (`ocr.swift`), grid model (`grid.py`), grid-constrained matching (`ocrmatch2.py`), review crops and contact sheets (`render_review.py`, `render_points.py`, `zoom.py`), applying the review (`apply_review.py`, `apply_m13.py`), confidence scoring (`confidence.py`), linking identifiers (`vici_join.py`, `pleiades_match.py`, `merge_ids.py`) and building `places.json` (`build_places.py`). They're written for a local working folder and need path changes before they can be re-run.
+- `tools/`: the extraction scripts: road tracing (`trace.py`), OCR (`ocr.swift`), grid model (`grid.py`), grid-constrained matching (`ocrmatch2.py`), review crops and contact sheets (`render_review.py`, `render_points.py`, `zoom.py`), applying the review (`apply_review.py`, `apply_m13.py`), confidence scoring (`confidence.py`), linking identifiers (`vici_join.py`, `pleiades_match.py`, `merge_ids.py`), routing roads along Itiner-e (`itinere_routes.py`, which takes its paths as arguments) and building `places.json` (`build_places.py`). They're written for a local working folder and need path changes before they can be re-run.
