@@ -2,6 +2,8 @@
 
 An interactive map of the Tabula Peutingeriana, the Roman road map that survives in a medieval copy. Pick any place and switch between the Table itself and a modern OpenStreetMap view.
 
+**Live:** https://cyberhirsch.github.io/peutinger-map/
+
 - **Peutinger view:** the full roll from Britain to India, using Konrad Miller's 1887 facsimile (cut into 13 image strips).
 - **OpenStreetMap view:** the same places at their real-world locations, with the Table's road network drawn over a modern map.
 - About 3,000 places can be searched by Latin or modern name. Each place shows the spelling used on the Table, its modern name, and its roads to neighbouring places with the Table's distances.
